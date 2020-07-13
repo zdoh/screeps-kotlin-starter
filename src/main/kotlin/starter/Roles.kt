@@ -3,7 +3,6 @@ package starter
 import screeps.api.*
 import screeps.api.structures.StructureController
 
-
 enum class Role {
     UNASSIGNED,
     HARVESTER,
@@ -11,12 +10,17 @@ enum class Role {
     UPGRADER
 }
 
+/**
+ * Работа апгрейдера, если есть свободное место ищем ресурс,
+ *
+ * @param controller
+ */
 fun Creep.upgrade(controller: StructureController) {
+    checkForHarvest()
 
-    if (store[RESOURCE_ENERGY] == 0) {
-        val sources = room.find(FIND_SOURCES)
-        if (harvest(sources[0]) == ERR_NOT_IN_RANGE) {
-            moveTo(sources[0].pos)
+    if (memory.needToHarvest) {
+        if (harvest(room.find(FIND_SOURCES)[1]) == ERR_NOT_IN_RANGE) {
+            moveTo(room.find(FIND_SOURCES)[1].pos)
         }
     } else {
         if (upgradeController(controller) == ERR_NOT_IN_RANGE) {
@@ -36,47 +40,102 @@ fun Creep.pause() {
     }
 }
 
-fun Creep.build(assignedRoom: Room = this.room) {
-    if (memory.building && store[RESOURCE_ENERGY] == 0) {
-        memory.building = false
-        say("🔄 harvest")
-    }
-    if (!memory.building && store[RESOURCE_ENERGY] == store.getCapacity()) {
-        memory.building = true
-        say("🚧 build")
-    }
+fun Creep.build() {
+    checkForHarvest()
 
-    if (memory.building) {
-        val targets = assignedRoom.find(FIND_MY_CONSTRUCTION_SITES)
+    if (memory.needToHarvest) {
+        val sources = room.find(FIND_SOURCES)
+        if (harvest(sources[0]) == ERR_NOT_IN_RANGE) {
+            moveTo(sources[0].pos)
+        }
+    } else {
+        val targets = room.findMyConstructionSites()
+
+        targets.sort { a, b ->
+            (Constants.constructionSitePriority[a.structureType]
+                ?: 100) - (Constants.constructionSitePriority[b.structureType] ?: 100)
+        }
+
         if (targets.isNotEmpty()) {
             if (build(targets[0]) == ERR_NOT_IN_RANGE) {
                 moveTo(targets[0].pos)
             }
         }
-    } else {
-        val sources = room.find(FIND_SOURCES)
-        if (harvest(sources[0]) == ERR_NOT_IN_RANGE) {
-            moveTo(sources[0].pos)
-        }
     }
 }
 
+/**
+ * Работа собирателя. Собирает ресурс RESOURCE_ENERGY и проверят при наличие свободного места в
+ * [STRUCTURE_EXTENSION] или в [STRUCTURE_SPAWN] несет туда
+ *
+ * @param fromRoom
+ * @param toRoom
+ */
 fun Creep.harvest(fromRoom: Room = this.room, toRoom: Room = this.room) {
-    if (store[RESOURCE_ENERGY] < store.getCapacity()) {
+    checkForHarvest()
+
+    if (memory.needToHarvest) {
         val sources = fromRoom.find(FIND_SOURCES)
         if (harvest(sources[0]) == ERR_NOT_IN_RANGE) {
             moveTo(sources[0].pos)
         }
     } else {
-        val targets = toRoom.find(FIND_MY_STRUCTURES)
-            .filter { (it.structureType == STRUCTURE_EXTENSION || it.structureType == STRUCTURE_SPAWN) }
-            .map { it.unsafeCast<StoreOwner>() }
-            .filter { it.store[RESOURCE_ENERGY] < it.store.getCapacity() }
+
+        val targets = toRoom.findMyStructure()
+            .filter {
+                (it.structureType == STRUCTURE_EXTENSION || it.structureType == STRUCTURE_SPAWN || it.structureType == STRUCTURE_TOWER)
+            }
+            .sortedBy {
+                Constants.constructionSitePriority[it.structureType] ?: 100
+            }
+            .map {
+                it.unsafeCast<StoreOwner>()
+            }
+            .filter {
+                it.store[RESOURCE_ENERGY] < it.store.getCapacity(RESOURCE_ENERGY)
+            }
 
         if (targets.isNotEmpty()) {
             if (transfer(targets[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
                 moveTo(targets[0].pos)
             }
+        } else {
+            moveTo(toRoom.find(FIND_MY_SPAWNS)[0].pos)
+
+            /*val notMyStructure = toRoom.find(FIND_STRUCTURES)
+                .filter {
+                    it.structureType == STRUCTURE_CONTAINER
+                }
+                .map {
+                    it.unsafeCast<StoreOwner>()
+                }
+                .filter {
+                    it.store[RESOURCE_ENERGY] < it.store.getCapacity(RESOURCE_ENERGY)
+                }
+
+            if (notMyStructure.isNotEmpty()) {
+                if (transfer(notMyStructure[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                    moveTo(notMyStructure[0])
+                }
+            } else {*/
+            // }
         }
+    }
+}
+
+/**
+ * check:
+ *  - need to harvest | if [needToHarvest] true and no free capacity in creep, change [needToHarvest] to false
+ *  - not need to harvest | if [needToHarvest] false и no used capacity, change [needToHarvest] to true
+ *
+ */
+fun Creep.checkForHarvest() {
+    if (memory.needToHarvest && store.getFreeCapacity() == 0) {
+        memory.needToHarvest = false
+        say("🔄 work")
+    }
+    if (!memory.needToHarvest && store.getUsedCapacity() == 0) {
+        memory.needToHarvest = true
+        say("🚧 harvest")
     }
 }

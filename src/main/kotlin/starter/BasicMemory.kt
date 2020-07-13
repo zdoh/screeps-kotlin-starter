@@ -1,6 +1,7 @@
 package starter
 
 import screeps.api.*
+import screeps.api.structures.Structure
 import screeps.utils.memory.memory
 
 /* Add the variables that you want to store to the persistent memory for each object type.
@@ -11,6 +12,7 @@ import screeps.utils.memory.memory
 var CreepMemory.building: Boolean by memory { false }
 var CreepMemory.pause: Int by memory { 0 }
 var CreepMemory.role by memory(Role.UNASSIGNED)
+var CreepMemory.needToHarvest: Boolean by memory { true }
 
 
 /* Rest of the persistent memory structures.
